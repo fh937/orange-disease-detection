@@ -52,7 +52,7 @@ st.write(
     "healthy or affected by a disease."
 )
 
-# ---------------- MODEL PATHS ----------------
+# ---------------- MODEL SETTINGS ----------------
 
 BASE_DIR = Path(__file__).parent
 
@@ -66,8 +66,8 @@ CLASSES = [
     "healthy"
 ]
 
-# Temporary threshold: accepts your tested orange at 1.80%
 ORANGE_THRESHOLD = 0.01
+CONFIDENCE_THRESHOLD = 70.0
 
 # ---------------- LOAD MODELS ----------------
 
@@ -131,10 +131,10 @@ if uploaded_file is not None:
                 axis=0
             )
 
-            # MobileNetV2 preprocessing
+            # Preprocess image
             processed_image = preprocess_input(image_array)
 
-            # ---------------- STAGE 1: ORANGE CHECK ----------------
+            # ---------------- STAGE 1: ORANGE VERIFICATION ----------------
 
             imagenet_predictions = imagenet_model.predict(
                 processed_image,
@@ -156,7 +156,7 @@ if uploaded_file is not None:
             )
 
             st.write(
-                f"ImageNet orange score: "
+                f"Orange verification: "
                 f"{orange_probability * 100:.2f}%"
             )
 
@@ -191,7 +191,19 @@ if uploaded_file is not None:
 
             st.subheader("🍊 Detection Result")
 
-            if predicted_class.lower() == "healthy":
+            if confidence < CONFIDENCE_THRESHOLD:
+
+                st.warning(
+                    f"⚠️ Uncertain prediction. Possible result: "
+                    f"{predicted_class}"
+                )
+
+                st.write(
+                    "Please upload a clearer image. "
+                    "The model is not sufficiently confident."
+                )
+
+            elif predicted_class.lower() == "healthy":
 
                 st.success("🍊 Prediction: Healthy Orange")
 
@@ -206,7 +218,7 @@ if uploaded_file is not None:
                 value=f"{confidence:.2f}%"
             )
 
-            # ---------------- ALL CLASS PROBABILITIES ----------------
+            # ---------------- CLASS PROBABILITIES ----------------
 
             st.subheader("Class Probabilities")
 
@@ -224,8 +236,11 @@ if uploaded_file is not None:
                     min(max(probability / 100, 0.0), 1.0)
                 )
 
+# ---------------- FOOTER ----------------
+
 st.markdown("---")
+
 st.caption(
     "Orange Fruit Disease Detection | "
-    "MobileNetV2 Deep Learning Model"
+    "MobileNetV2 Deep Learning Project"
 )
