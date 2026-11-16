@@ -48,8 +48,8 @@ h1, h2, h3, p, label {
 
 st.title("🍊 Orange Fruit Disease Detection")
 st.write(
-    "Upload an orange image to check whether it is healthy "
-    "or affected by a disease."
+    "Upload an orange fruit image to detect whether it is "
+    "healthy or affected by a disease."
 )
 
 # ---------------- MODEL PATHS ----------------
@@ -65,6 +65,9 @@ CLASSES = [
     "Scab",
     "healthy"
 ]
+
+# Temporary threshold: accepts your tested orange at 1.80%
+ORANGE_THRESHOLD = 0.01
 
 # ---------------- LOAD MODELS ----------------
 
@@ -82,6 +85,7 @@ def load_imagenet_model():
 try:
     disease_model = load_disease_model()
     imagenet_model = load_imagenet_model()
+
 except Exception as e:
     st.error("Could not load the models.")
     st.exception(e)
@@ -96,13 +100,18 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
 
-    image = Image.open(uploaded_file).convert("RGB")
+    try:
+        image = Image.open(uploaded_file).convert("RGB")
 
-    st.image(
-        image,
-        caption="Uploaded Image",
-        use_container_width=True
-    )
+        st.image(
+            image,
+            caption="Uploaded Image",
+            use_container_width=True
+        )
+
+    except Exception:
+        st.error("Unable to read this image.")
+        st.stop()
 
     if st.button("Detect Disease"):
 
@@ -111,7 +120,7 @@ if uploaded_file is not None:
             # Resize image
             resized_image = image.resize((224, 224))
 
-            # Convert image to array
+            # Convert to array
             image_array = np.array(
                 resized_image,
                 dtype=np.float32
@@ -125,7 +134,7 @@ if uploaded_file is not None:
             # MobileNetV2 preprocessing
             processed_image = preprocess_input(image_array)
 
-            # ---------------- STAGE 1: ORANGE VERIFICATION ----------------
+            # ---------------- STAGE 1: ORANGE CHECK ----------------
 
             imagenet_predictions = imagenet_model.predict(
                 processed_image,
@@ -147,18 +156,19 @@ if uploaded_file is not None:
             )
 
             st.write(
-                f"Orange verification: "
+                f"ImageNet orange score: "
                 f"{orange_probability * 100:.2f}%"
             )
 
-            if orange_probability < 0.50:
+            if orange_probability < ORANGE_THRESHOLD:
+
                 st.error(
-                    "❌ This image does not appear to be an orange. "
+                    "❌ This image could not be verified as an orange. "
                     "Please upload an orange fruit image."
                 )
                 st.stop()
 
-            st.success("✅ Orange image verified!")
+            st.success("✅ Orange check passed!")
 
             # ---------------- STAGE 2: DISEASE DETECTION ----------------
 
@@ -179,11 +189,14 @@ if uploaded_file is not None:
 
             # ---------------- DISPLAY RESULT ----------------
 
-            st.subheader("Detection Result")
+            st.subheader("🍊 Detection Result")
 
             if predicted_class.lower() == "healthy":
-                st.success("🍊 Orange is Healthy!")
+
+                st.success("🍊 Prediction: Healthy Orange")
+
             else:
+
                 st.error(
                     f"⚠️ Disease Detected: {predicted_class}"
                 )
@@ -193,15 +206,18 @@ if uploaded_file is not None:
                 value=f"{confidence:.2f}%"
             )
 
-            st.write("### Class Probabilities")
+            # ---------------- ALL CLASS PROBABILITIES ----------------
+
+            st.subheader("Class Probabilities")
 
             for i, class_name in enumerate(CLASSES):
+
                 probability = float(
                     predictions[0][i]
                 ) * 100
 
                 st.write(
-                    f"**{class_name}:** {probability:.2f}%"
+                    f"**{class_name}: {probability:.2f}%**"
                 )
 
                 st.progress(
@@ -209,4 +225,7 @@ if uploaded_file is not None:
                 )
 
 st.markdown("---")
-st.caption("Orange Fruit Disease Detection | Deep Learning Project")
+st.caption(
+    "Orange Fruit Disease Detection | "
+    "MobileNetV2 Deep Learning Model"
+)
