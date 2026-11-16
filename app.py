@@ -28,18 +28,24 @@ st.markdown("""
     background-color: #071b12;
     color: white;
 }
-h1, h2, h3, p, label {
-    color: white !important;
+h1, h2, h3, h4, p, label, span {
+    color: white;
 }
 .stButton button {
     background-color: #16834a;
     color: white;
     border-radius: 10px;
     border: none;
+    font-weight: bold;
 }
 .stButton button:hover {
     background-color: #20a35e;
     color: white;
+}
+div[data-testid="stMetric"] {
+    background-color: #103525;
+    padding: 15px;
+    border-radius: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -47,16 +53,17 @@ h1, h2, h3, p, label {
 # ---------------- TITLE ----------------
 
 st.title("🍊 Orange Fruit Disease Detection")
+
 st.write(
-    "Upload an orange fruit image to detect whether it is "
-    "healthy or affected by a disease."
+    "Upload an orange image to identify its main disease "
+    "or check whether it is healthy."
 )
 
 # ---------------- MODEL SETTINGS ----------------
 
 BASE_DIR = Path(__file__).parent
 
-DISEASE_MODEL_PATH = BASE_DIR / "orange_disease_finetuned.keras"
+DISEASE_MODEL_PATH = BASE_DIR / "orange_disease_improved.keras"
 
 CLASSES = [
     "Black spot",
@@ -86,6 +93,10 @@ try:
     disease_model = load_disease_model()
     imagenet_model = load_imagenet_model()
 
+    if disease_model.output_shape[-1] != len(CLASSES):
+        st.error("Disease model has an unexpected number of output classes.")
+        st.stop()
+
 except Exception as e:
     st.error("Could not load the models.")
     st.exception(e)
@@ -113,31 +124,27 @@ if uploaded_file is not None:
         st.error("Unable to read this image.")
         st.stop()
 
-    if st.button("Detect Disease"):
+    if st.button("Detect Disease", use_container_width=True):
 
         with st.spinner("Checking image and detecting disease..."):
 
-            # Resize image
+            # Resize and convert to RGB
             resized_image = image.resize((224, 224))
 
-            # Convert to array
             image_array = np.array(
                 resized_image,
                 dtype=np.float32
             )
 
-            image_array = np.expand_dims(
-                image_array,
-                axis=0
-            )
-
-            # Preprocess image
-            processed_image = preprocess_input(image_array)
+            image_batch = np.expand_dims(image_array, axis=0)
 
             # ---------------- STAGE 1: ORANGE VERIFICATION ----------------
 
+            # ImageNet model requires MobileNetV2 preprocessing
+            imagenet_input = preprocess_input(image_batch.copy())
+
             imagenet_predictions = imagenet_model.predict(
-                processed_image,
+                imagenet_input,
                 verbose=0
             )
 
@@ -156,85 +163,112 @@ if uploaded_file is not None:
             )
 
             st.write(
-                f"Orange verification: "
+                f"Orange verification score: "
                 f"{orange_probability * 100:.2f}%"
             )
 
             if orange_probability < ORANGE_THRESHOLD:
-
                 st.error(
                     "❌ This image could not be verified as an orange. "
                     "Please upload an orange fruit image."
                 )
                 st.stop()
 
-            st.success("✅ Orange check passed!")
+            st.success("✅ Orange verification passed.")
 
             # ---------------- STAGE 2: DISEASE DETECTION ----------------
 
-            predictions = disease_model.predict(
-                processed_image,
-                verbose=0
-            )
+            # IMPORTANT:
+            # This model contains its own preprocessing layers.
+            # Pass raw RGB images (0–255). Do not use preprocess_input here.
 
-            predicted_index = int(
-                np.argmax(predictions[0])
-            )
+            predictions = disease_model(
+                image_batch,
+                training=False
+            ).numpy()[0]
 
+            predicted_index = int(np.argmax(predictions))
             predicted_class = CLASSES[predicted_index]
 
-            confidence = float(
-                predictions[0][predicted_index]
-            ) * 100
+            confidence = float(predictions[predicted_index]) * 100
 
-            # ---------------- DISPLAY RESULT ----------------
+            # Rank all five classes
+            ranked_indices = np.argsort(predictions)[::-1]
 
-            st.subheader("🍊 Detection Result")
+            # ---------------- MAIN RESULT ----------------
+
+            st.markdown("---")
+            st.subheader("🍊 Main Detection Result")
 
             if confidence < CONFIDENCE_THRESHOLD:
 
                 st.warning(
-                    f"⚠️ Uncertain prediction. Possible result: "
-                    f"{predicted_class}"
+                    f"⚠️ Uncertain result: {predicted_class}"
                 )
 
                 st.write(
-                    "Please upload a clearer image. "
-                    "The model is not sufficiently confident."
+                    "The model's top score is below the confidence "
+                    "threshold. Treat this prediction cautiously."
                 )
 
-            elif predicted_class.lower() == "healthy":
+            elif predicted_class == "healthy":
 
-                st.success("🍊 Prediction: Healthy Orange")
+                st.success("🍊 Main prediction: Healthy Orange")
 
             else:
 
                 st.error(
-                    f"⚠️ Disease Detected: {predicted_class}"
+                    f"⚠️ Main prediction: {predicted_class}"
                 )
 
             st.metric(
-                label="Prediction Confidence",
-                value=f"{confidence:.2f}%"
+                "Top prediction score",
+                f"{confidence:.2f}%"
             )
 
-            # ---------------- CLASS PROBABILITIES ----------------
+            # ---------------- ALL CLASS SCORES ----------------
 
-            st.subheader("Class Probabilities")
+            st.markdown("---")
+            st.subheader("📊 Scores for All Classes")
 
-            for i, class_name in enumerate(CLASSES):
+            for i in ranked_indices:
 
-                probability = float(
-                    predictions[0][i]
-                ) * 100
+                class_name = CLASSES[i]
+                score = float(predictions[i]) * 100
 
-                st.write(
-                    f"**{class_name}: {probability:.2f}%**"
-                )
+                st.write(f"**{class_name}: {score:.2f}%**")
 
                 st.progress(
-                    min(max(probability / 100, 0.0), 1.0)
+                    float(np.clip(score / 100, 0, 1))
                 )
+
+            # ---------------- ALTERNATIVE POSSIBILITIES ----------------
+
+            st.markdown("---")
+            st.subheader("🔍 Other Possible Results")
+
+            alternatives = ranked_indices[1:]
+
+            for rank, index in enumerate(alternatives, start=2):
+
+                alternative_name = CLASSES[index]
+                alternative_score = float(predictions[index]) * 100
+
+                st.write(
+                    f"**{rank}. {alternative_name}** — "
+                    f"{alternative_score:.2f}%"
+                )
+
+            st.caption(
+                "The model selects one main class. Other scores are "
+                "alternative model outputs, not confirmed additional diseases."
+            )
+
+            st.info(
+                "These scores are model outputs, not clinically calibrated "
+                "probabilities. Results may be less reliable on unfamiliar "
+                "images or mixed symptoms."
+            )
 
 # ---------------- FOOTER ----------------
 
